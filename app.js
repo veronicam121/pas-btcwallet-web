@@ -59,21 +59,25 @@ var getSecretKey  = function (uid) {
 var updateSecretKey = function (uid, token) {
     console.log("60");
     token.secret = token.tempSecret;
-    // response.tempSecret = null;
     token.activated = true;
     setSecretKey(token, uid);
 };
 
+var deactivateSecretKey = function(uid) {
+    var token = { enabled: false, activated: false};
+    setSecretKey(token, uid);
+}
+
 var sendCodeToEmail = function(data_url, response) {
     console.log(response);
-    console.log(data_url);
     const mailOptions = {
       from: "'Vision Wallet' <noreply@firebase.com>",
       to: response.email,
       subject: "Has activado la opción de 2FA",
-      text: "Gracias por activar el segundo factor de autentificación en la aplicación Vision Wallet" + 
-            "Es necesario que escanee el código QR a través de Google Autenticator o Authy",
-      html: 'Código: <img src="cid:qrcode"/>',
+      html: '<h3>Activación de 2FA</h3>' +
+            '<p>Gracias por activar el segundo factor de autentificación en la aplicación Vision Wallet. <br>' + 
+            'Es necesario que escanee el código QR a través de Google Autenticator o Authy.</p><br>' + 
+            '<b>Codigo:</b> <img src="cid:qrcode"/>',
         attachments: [{
         filename: "image.png",
         path: data_url,
@@ -93,7 +97,6 @@ var sendCodeToEmail = function(data_url, response) {
 // Verifies the user has activated 2FAU
 
 var verifySecret = function(otp, uid) {
-    console.log("///////////////////////////////////////////////////////");
     return new Promise((resolve, reject) => {
     getSecretKey(uid)
         .then((token) => {
@@ -112,8 +115,10 @@ var verifySecret = function(otp, uid) {
                 updateSecretKey(uid, token)
                 resolve("SUCCESS");
             }
-            console.log("NOT VALID OTP");
-            reject("ERROR.2FA.invalid_otp");
+            else {
+                console.log("NOT VALID OTP");
+                reject("ERROR.2FA.invalid_otp");
+            }
         })
         .catch((error) => {
             console.log("WHAT HAPPENED");
@@ -131,6 +136,7 @@ var verifyOTP = function(uid, otp) {
             secret: user.secret,
             encoding: "base32",
             token: otp,
+            window: 2
         });
         if (verified){
             return "SUCCESS";
@@ -171,9 +177,16 @@ app.post("/twofactor/setup/enable", function(req, res){
     verifyUser(req.body.idToken)
     .then((user) => {
         const secret = speakeasy.generateSecret({length: 10});
-        QRCode.toDataURL(secret.otpauth_url, (err, data_url)=> {
-            setSecretKey({tempSecret: secret.base32, dataURL: data_url, otpURL: secret.otpauth_url, activated: false}, user.uid);
-            sendCodeToEmail(data_url, user.email);
+        var url = speakeasy.otpauthURL({ secret: secret.ascii, label: 'Vision Wallet', algorithm: 'sha512' });
+        QRCode.toDataURL(url, (err, data_url)=> {
+            setSecretKey({
+                tempSecret: secret.base32, 
+                dataURL: data_url,
+                otpURL: url, 
+                activated: false,
+                enabled: true,
+            }, user.uid);
+            sendCodeToEmail(data_url, user);
             return res.json({
                 message: "VERIFY_OTP",
                 tempSecret: secret.base32,
@@ -195,9 +208,17 @@ app.post("/twofactor/details", function(req, res){
 });
 
 // Disables 2fa
-app.delete("/twofactor/setup/disable", function(req, res){
-    delete user.twofactor;
-    res.send("DELETED_2FA");
+app.post("/twofactor/setup/deactivate", function(req, res){
+    verifyUser(req.body.idToken)
+    .then((user) => {
+        deactivateSecretKey(user.uid);
+        var message = "DELETED_2FA"
+        res.status("200").send(message);
+    })
+    .catch((error) => {
+        console.log(error);
+        res.status("400").send(error);
+    });
 });
 
 app.post("/twofactor/setup/verify", function(req, res){
