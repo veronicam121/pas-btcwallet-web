@@ -1,5 +1,12 @@
 "use strict";
 
+/*
+Server for 2FA. Does CRUD operations on Firebase RealTime Database related to 2 FA tokens
+*/ 
+
+
+// Setting up dependencies
+
 const express = require("express");
 var app = express();
 const bodyParser = require("body-parser");
@@ -10,16 +17,13 @@ var http = require("http");
 var firebase = require("firebase");
 var admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
-
+var serviceAccount = require("./serviceAccountKey.json");
 const mailTransport = nodemailer.createTransport({
   service: "gmail",
-  auth: {
-    user: "missau121",
-    pass: "vicariouslyilive1234",
-  },
+// we set up here the email account
 });
 
-var serviceAccount = require("./serviceAccountKey.json");
+// Server Settings
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({
@@ -31,6 +35,8 @@ app.use(function(req, res, next) {
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
   next();
 });
+
+// Firebase Admin Setting Up
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -68,6 +74,10 @@ var deactivateSecretKey = function(uid) {
     setSecretKey(token, uid);
 }
 
+// Sends the QR Code to the user email
+
+// Currently uses my gmail account
+
 var sendCodeToEmail = function(data_url, response) {
     console.log(response);
     const mailOptions = {
@@ -104,7 +114,7 @@ var verifySecret = function(otp, uid) {
                 reject("ERROR.2FA.user_is_verified");
             }
             var verified = speakeasy.totp.verify({
-                secret: token.tempSecret, //secret of the logged in user
+                secret: token.tempSecret, // Secret of the logged in user
                 encoding: "base32",
                 token: otp
             });
@@ -129,6 +139,7 @@ var verifySecret = function(otp, uid) {
 };
 
 // Verifies the OTP is valid, then gives permission to the user on the APP
+
 var verifyOTP = function(uid, otp) {
     getSecretKey(uid)
     .then((user) => {
@@ -154,6 +165,7 @@ var verifyUser = function(token) {
     admin.auth()
         .verifyIdToken(token)
         .then((user) => {
+            // If user email is verified we can activate 2FA
             // if (user.email_verified) {
                 resolve(user);
             //} else {
@@ -169,9 +181,8 @@ var verifyUser = function(token) {
     }) 
 };
 
+// Allows a user to setup 2FAU
 
-
-// Allows a user to setup two factor auth
 app.post("/twofactor/setup/enable", function(req, res){
     // we validate the id token
     verifyUser(req.body.idToken)
@@ -200,14 +211,8 @@ app.post("/twofactor/setup/enable", function(req, res){
     });
 });
 
-// Gets 2fa details
-app.post("/twofactor/details", function(req, res){
-    getSecretKey(req.body.uid).then((response) => {
-        res.json(response);
-    })
-});
+// Disables 2FAU
 
-// Disables 2fa
 app.post("/twofactor/setup/deactivate", function(req, res){
     verifyUser(req.body.idToken)
     .then((user) => {
@@ -221,30 +226,28 @@ app.post("/twofactor/setup/deactivate", function(req, res){
     });
 });
 
+// Verifies the 2FAU Activation
+
 app.post("/twofactor/setup/verify", function(req, res){
-    console.log("1.- We get Here");
     verifyUser(req.body.idToken)
     .then((user) => {
-        console.log("THE USER:" + user);
         verifySecret(req.body.otp, user.uid)
         .then((message) => {
-            console.log("WE SENT THE USER THIS");
             console.log(message);
             return res.status(200).sendStatus(message);
         })
         .catch((error) => {
-            console.log("ERR.- Failed on this");
-            console.log("219");
             console.log(error);
             return res.status(400).send(error);
         });
     })
     .catch((error) => {
-        console.log("ERR.- It failed Here");
         console.log(error);
         return res.status(400).send(error);
     });
 });
+
+// Verifies an OTP
 
 app.post("/twofactor/verify" , function(req, res){
     verifyUser(req.body.idToken)
@@ -264,6 +267,7 @@ app.post("/twofactor/verify" , function(req, res){
     });
 });
 
+// Server Startup
 app.listen("3000", ()=>{
     console.log("App running on 3000");
 });
